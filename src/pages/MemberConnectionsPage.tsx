@@ -11,7 +11,7 @@ import MiniMap from '@/components/MiniMap';
 import {
   Search, Link2, Sun, ChevronDown, ChevronUp, SlidersHorizontal,
   ZoomIn, ZoomOut, Download, X,
-  RotateCcw, Undo2, Redo2, BookmarkPlus, Bookmark as BookmarkIcon,
+  RotateCcw, BookmarkPlus, Bookmark as BookmarkIcon,
   Clock as ClockIcon, Trash2
 } from 'lucide-react';
 
@@ -119,7 +119,7 @@ export default function MemberConnectionsPage() {
     const iv = setInterval(() => {
       const c = graphRef.current?.getCenter?.();
       if (c) setViewportCenter(c);
-    }, 200);
+    }, 50);
     return () => clearInterval(iv);
   }, [viewMode]);
 
@@ -167,8 +167,7 @@ export default function MemberConnectionsPage() {
 
   useEffect(() => {
     const handler = (e: KeyboardEvent) => {
-      if ((e.ctrlKey || e.metaKey) && e.key === 'z' && !e.shiftKey) { e.preventDefault(); graphRef.current?.undo(); }
-      if ((e.ctrlKey || e.metaKey) && e.shiftKey && e.key === 'z') { e.preventDefault(); graphRef.current?.redo(); }
+
     };
     window.addEventListener('keydown', handler);
     return () => window.removeEventListener('keydown', handler);
@@ -182,8 +181,15 @@ export default function MemberConnectionsPage() {
 
   const handleZoomIn = () => { const z = (graphRef.current as any)?.zoom?.() || zoom; graphRef.current?.zoom(z * 1.15, 200); };
   const handleZoomOut = () => { const z = (graphRef.current as any)?.zoom?.() || zoom; graphRef.current?.zoom(z / 1.15, 200); };
-  const handleReset = () => { setFocusNodeId(null); setPanelUser(null); setSelectedIds(new Set()); setTimePercent(100); graphRef.current?.zoomToFit(400, 100); };
-  const exportPng = () => { const canvas = graphRef.current?.canvas; if (!canvas) return; const link = document.createElement('a'); link.download = `mentori-${Date.now()}.png`; link.href = canvas.toDataURL('image/png'); link.click(); };
+  const handleReset = () => { setFocusNodeId(null); setPanelUser(null); setSelectedIds(new Set()); setTimePercent(100); graphRef.current?.resetSun(); };
+  const exportPng = () => {
+    const canvas = document.querySelector('canvas');
+    if (!canvas) return;
+    const link = document.createElement('a');
+    link.download = `mentori-${Date.now()}.png`;
+    link.href = canvas.toDataURL('image/png');
+    link.click();
+  };
   const openPanel = (user: User) => { setPanelUser(user); setFocusNodeId(user.id); };
   const handleNodeRightClick = useCallback((user: User, x: number, y: number) => { setCtxMenu({ x, y, user }); }, []);
   const handleCtxAction = (action: 'message' | 'role' | 'profile') => {

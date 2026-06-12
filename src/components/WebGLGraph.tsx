@@ -93,11 +93,10 @@ export interface WebGLGraphHandle {
   centerAt: (x: number, y: number, duration: number) => void;
   getCenter: () => { x: number; y: number };
   canvas: HTMLCanvasElement | null;
+  resetSun: () => void;
   saveBookmark: (name: string) => Bookmark;
   restoreBookmark: (bm: Bookmark) => void;
   getNodePositions: () => Record<string, { x: number; y: number }>;
-  undo: () => boolean;
-  redo: () => boolean;
 }
 
 const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
@@ -305,7 +304,7 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
         gDataRef.current.nodes.forEach((n) => { if (n.x != null && n.y != null) p[n.id] = { x: n.x, y: n.y }; });
         onPositionsChange(p);
       }
-    }, 300);
+    }, 50);
     return () => clearInterval(iv);
   }, [onPositionsChange]);
 

@@ -4,15 +4,13 @@ import { STAGE_NAMES, STAGE_COLORS, BOND_COLORS, BOND_LABELS } from '@/types';
 import type { User, Bond } from '@/types';
 import Layout from '@/components/Layout';
 import WebGLGraph from '@/components/WebGLGraph';
-import type { WebGLGraphHandle, Bookmark } from '@/components/WebGLGraph';
+import type { WebGLGraphHandle } from '@/components/WebGLGraph';
 import LegendPanel from '@/components/LegendPanel';
 import ContextMenu from '@/components/ContextMenu';
 import MiniMap from '@/components/MiniMap';
 import {
-  Search, Link2, Sun, ChevronDown, ChevronUp, SlidersHorizontal,
-  ZoomIn, ZoomOut, Download, X,
-  RotateCcw, BookmarkPlus, Bookmark as BookmarkIcon,
-  Clock as ClockIcon, Trash2
+  Search, Link2, LayoutList, ChevronDown, ChevronUp, SlidersHorizontal,
+  ZoomIn, ZoomOut, Download, X, RotateCcw, Clock as ClockIcon
 } from 'lucide-react';
 
 const CURRENT_USER_ID = 'u4';
@@ -48,11 +46,6 @@ function timeAgo(ts: number): string {
   return `${Math.floor(d / 30)} мес. назад`;
 }
 
-function loadBookmarks(): Bookmark[] {
-  try { return JSON.parse(localStorage.getItem('mentori-bookmarks') || '[]'); } catch { return []; }
-}
-function saveBookmarks(bms: Bookmark[]) { localStorage.setItem('mentori-bookmarks', JSON.stringify(bms)); }
-
 const NOW = Date.now();
 const OLDEST_BOND = Math.min(...bonds.map((b) => b.lastReinforced));
 const TIME_RANGE = NOW - OLDEST_BOND;
@@ -61,6 +54,7 @@ export default function MemberConnectionsPage() {
   const containerRef = useRef<HTMLDivElement>(null);
   const graphRef = useRef<WebGLGraphHandle>(null);
   const [size, setSize] = useState({ w: 800, h: 600 });
+  const [graphKey, setGraphKey] = useState(0);
   const [focusNodeId, setFocusNodeId] = useState<string | null>(null);
   const [hoveredUser, setHoveredUser] = useState<User | null>(null);
   const [hoveredBond, setHoveredBond] = useState<Bond | null>(null);
@@ -74,22 +68,12 @@ export default function MemberConnectionsPage() {
   const [searchMatchIds, setSearchMatchIds] = useState<Set<string>>(new Set());
   const [panelUser, setPanelUser] = useState<User | null>(null);
   const [ctxMenu, setCtxMenu] = useState<{ x: number; y: number; user: User } | null>(null);
-  const [bookmarks, setBookmarks] = useState<Bookmark[]>(loadBookmarks);
-  const [showBookmarks, setShowBookmarks] = useState(false);
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [timePercent, setTimePercent] = useState(100);
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [viewportCenter, setViewportCenter] = useState({ x: 0, y: 0 });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
-  const [bookmarkName, setBookmarkName] = useState('');
-  const [showBookmarkInput, setShowBookmarkInput] = useState(false);
-  const [toast, setToast] = useState<{ msg: string; visible: boolean }>({ msg: '', visible: false });
-  const [showOnboarding, setShowOnboarding] = useState(() => {
-    return !localStorage.getItem('mentori-onboarded');
-  });
-  const [bookmarkFlash, setBookmarkFlash] = useState(false);
-  const [bookmarkSaved, setBookmarkSaved] = useState(false);
-  const initialBookmarkSaved = useRef(false);
+  const [toast, setToast] = useState({ msg: '', visible: false });
 
   const maxTime = timePercent >= 100 ? null : OLDEST_BOND + TIME_RANGE * (timePercent / 100);
 
@@ -104,27 +88,16 @@ export default function MemberConnectionsPage() {
   useEffect(() => {
     const timer = setTimeout(() => {
       graphRef.current?.zoomToFit(400, 100);
-      setTimeout(() => {
-        if (!initialBookmarkSaved.current && graphRef.current) {
-          initialBookmarkSaved.current = true;
-          const bms = loadBookmarks();
-          if (!bms.find((b) => b.name === 'Начальная')) {
-            const bm = graphRef.current.saveBookmark('Начальная');
-            setBookmarks([bm, ...bms]);
-            saveBookmarks([bm, ...bms]);
-          }
-        }
-      }, 800);
     }, 900);
     return () => clearTimeout(timer);
-  }, [viewMode]);
+  }, [viewMode, graphKey]);
 
   useEffect(() => {
     if (viewMode !== 'graph') return;
     const iv = setInterval(() => {
       const c = graphRef.current?.getCenter?.();
       if (c) setViewportCenter(c);
-    }, 50);
+    }, 200);
     return () => clearInterval(iv);
   }, [viewMode]);
 
@@ -170,14 +143,6 @@ export default function MemberConnectionsPage() {
     return { ...b, other, label: BOND_LABELS[b.type] };
   }).sort((a, b) => b.strength - a.strength), [myBonds]);
 
-  useEffect(() => {
-    const handler = (e: KeyboardEvent) => {
-
-    };
-    window.addEventListener('keydown', handler);
-    return () => window.removeEventListener('keydown', handler);
-  }, []);
-
   const onMouseMove = (e: React.MouseEvent) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -186,15 +151,9 @@ export default function MemberConnectionsPage() {
 
   const handleZoomIn = () => { const z = (graphRef.current as any)?.zoom?.() || zoom; graphRef.current?.zoom(z * 1.15, 200); };
   const handleZoomOut = () => { const z = (graphRef.current as any)?.zoom?.() || zoom; graphRef.current?.zoom(z / 1.15, 200); };
-  const handleReset = () => { setFocusNodeId(null); setPanelUser(null); setSelectedIds(new Set()); setTimePercent(100); graphRef.current?.resetSun(); };
-  const exportPng = () => {
-    const canvas = document.querySelector('canvas');
-    if (!canvas) return;
-    const link = document.createElement('a');
-    link.download = `mentori-${Date.now()}.png`;
-    link.href = canvas.toDataURL('image/png');
-    link.click();
-  };
+  const handleReset = () => { setFocusNodeId(null); setPanelUser(null); setSelectedIds(new Set()); setTimePercent(100); setGraphKey((k) => k + 1); };
+  const exportPng = () => { const canvas = graphRef.current?.canvas; if (!canvas) return; const link = document.createElement('a'); link.download = `mentori-${Date.now()}.png`; link.href = canvas.toDataURL('image/png'); link.click(); };
+  const showToast = (msg: string) => { setToast({ msg, visible: true }); setTimeout(() => setToast({ msg: '', visible: false }), 2500); };
   const openPanel = (user: User) => { setPanelUser(user); setFocusNodeId(user.id); };
   const handleNodeRightClick = useCallback((user: User, x: number, y: number) => { setCtxMenu({ x, y, user }); }, []);
   const handleCtxAction = (action: 'message' | 'role' | 'profile') => {
@@ -202,24 +161,6 @@ export default function MemberConnectionsPage() {
     switch (action) { case 'message': alert(`Чат с ${ctxMenu.user.name}`); break; case 'role': alert(`Роль для ${ctxMenu.user.name}`); break; case 'profile': alert(`Профиль ${ctxMenu.user.name}`); break; }
     setCtxMenu(null);
   };
-  const showToast = (msg: string) => { setToast({ msg, visible: true }); setTimeout(() => setToast({ msg: '', visible: false }), 2500); };
-  const addBookmark = () => {
-    if (!graphRef.current) return;
-    const name = bookmarkName.trim() || `Карта ${bookmarks.length + 1}`;
-    const bm = graphRef.current.saveBookmark(name);
-    const next = [bm, ...bookmarks];
-    setBookmarks(next);
-    saveBookmarks(next);
-    setBookmarkName('');
-    setShowBookmarkInput(false);
-    showToast('Карта связей сохранена!');
-  };
-  const restoreBookmark = (bm: Bookmark) => {
-    console.log('Restoring bookmark:', bm.name, 'zoom:', bm.zoom, 'center:', bm.centerX, bm.centerY);
-    graphRef.current?.restoreBookmark(bm);
-    setShowBookmarks(false);
-  };
-  const deleteBookmark = (id: string) => { const next = bookmarks.filter((b) => b.id !== id); setBookmarks(next); saveBookmarks(next); };
   const toggleSelect = (user: User, shift: boolean) => {
     if (shift) { setSelectedIds((prev) => { const next = new Set(prev); if (next.has(user.id)) next.delete(user.id); else next.add(user.id); return next; }); }
     else { setSelectedIds(new Set()); openPanel(user); }
@@ -228,46 +169,16 @@ export default function MemberConnectionsPage() {
 
   const rightActions = (
     <>
-      <div className="relative">
-        <button onClick={() => setShowBookmarks((p) => !p)} className={`p-1.5 rounded-lg bg-white/5 border border-white/10 transition-colors relative ${bookmarkFlash ? 'text-amber-400 border-amber-500/30 bg-amber-500/10' : 'text-gray-500 hover:text-amber-400'}`} title={bookmarkSaved ? 'Карта связей сохранена!' : 'Закладки'}>
-          <BookmarkIcon className={`w-4 h-4 ${bookmarkFlash ? 'animate-pulse' : ''}`} />
-          {bookmarkSaved && <span className="absolute -top-1 -right-1 w-2 h-2 rounded-full bg-emerald-400" />}
-        </button>
-        {showBookmarks && (
-          <div className="absolute top-full right-0 mt-2 w-56 rounded-xl bg-[#131b2e] border border-white/10 shadow-2xl z-50 overflow-hidden">
-            <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
-              <span className="text-[11px] text-gray-400">Закладки ({bookmarks.length})</span>
-              <button onClick={() => setShowBookmarkInput((p) => !p)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-[10px]">
-                <BookmarkPlus className="w-3.5 h-3.5" />{showBookmarkInput ? 'Отмена' : 'Сохранить'}
-              </button>
-            </div>
-            {showBookmarkInput && (
-              <div className="px-3 py-2 border-b border-white/5 flex gap-1.5">
-                <input
-                  value={bookmarkName}
-                  onChange={(e) => setBookmarkName(e.target.value)}
-                  onKeyDown={(e) => e.key === 'Enter' && addBookmark()}
-                  placeholder="Название..."
-                  autoFocus
-                  className="flex-1 h-6 px-2 bg-white/5 border border-white/10 rounded text-[10px] text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/50"
-                />
-                <button onClick={addBookmark} className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px] hover:bg-emerald-500/25 transition-colors">OK</button>
-              </div>
-            )}
-            {bookmarks.length === 0 && <p className="text-[10px] text-gray-600 px-3 py-3 text-center">Нет закладок. Сохраните текущую карту связей.</p>}
-            {bookmarks.map((bm) => (
-              <div key={bm.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 transition-colors group">
-                <button onClick={() => restoreBookmark(bm)} className="flex-1 text-left text-[11px] text-gray-300 hover:text-white truncate">{bm.name}</button>
-                <span className="text-[9px] text-gray-600 tabular-nums">{new Date(bm.timestamp).toLocaleDateString('ru-RU', { day: 'numeric', month: 'short' })}</span>
-                <button onClick={() => deleteBookmark(bm.id)} className="text-gray-600 hover:text-rose-400 opacity-0 group-hover:opacity-100 transition-opacity"><Trash2 className="w-3 h-3" /></button>
-              </div>
-            ))}
-          </div>
-        )}
-      </div>
+      <button onClick={() => setViewMode(viewMode === 'list' ? 'graph' : 'list')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors mr-1">
+        <LayoutList className="w-3.5 h-3.5" />{viewMode === 'list' ? 'Граф' : 'Список'}
+      </button>
       <div className="h-5 w-px bg-white/10" />
-      <button onClick={() => { graphRef.current?.resetSun(); handleReset(); }} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-500 hover:text-amber-400 transition-colors" title="Исходное состояние"><RotateCcw className="w-4 h-4" /></button>
-      <button onClick={exportPng} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-500 hover:text-gray-200 transition-colors" title="Скачать карту связей"><Download className="w-4 h-4" /></button>
+      <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:text-amber-400 hover:bg-white/5 transition-colors" title="Вернуть в исходное состояние">
+        <RotateCcw className="w-3.5 h-3.5" />Исходное состояние
+      </button>
+      <button onClick={exportPng} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-500 hover:text-gray-200 transition-colors" title="Скачать карту связей">
+        <Download className="w-4 h-4" />
+      </button>
     </>
   );
 
@@ -281,11 +192,11 @@ export default function MemberConnectionsPage() {
           <div className="px-5 py-2 flex items-center gap-3">
             {/* Search */}
             <div className="relative flex-shrink-0">
-              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-3.5 h-3.5 text-gray-500" />
+              <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-500" />
               <input placeholder="Найти участника..." value={searchQuery} onChange={(e) => { setSearchQuery(e.target.value); setShowSearch(true); }} onFocus={() => setShowSearch(true)}
-                className="pl-8 pr-4 h-7 w-56 bg-white/5 border border-white/10 rounded-lg text-xs text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/50" />
+                className="pl-9 pr-4 h-8 w-64 bg-white/5 border border-white/10 rounded-lg text-sm text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/50" />
               {showSearch && searchResults.length > 0 && (
-                <div className="absolute top-full mt-1 w-48 rounded-xl bg-[#131b2e] border border-white/10 shadow-2xl z-50 overflow-hidden">
+                <div className="absolute top-full mt-1 w-56 rounded-xl bg-[#131b2e] border border-white/10 shadow-2xl z-50 overflow-hidden">
                   {searchResults.map((u) => (
                     <button key={u.id} onClick={() => { openPanel(u); setShowSearch(false); setSearchQuery(''); }}
                       className="w-full flex items-center gap-2 px-3 py-2 hover:bg-white/5 transition-colors text-left">
@@ -326,7 +237,7 @@ export default function MemberConnectionsPage() {
             {/* Time slider — always visible */}
             <div className="flex items-center gap-2 flex-shrink-0">
               <ClockIcon className="w-3 h-3 text-gray-600" />
-              <span className="text-[10px] text-gray-500 tabular-nums">{timePercent >= 100 ? 'Сейчас' : timePercent <= 0 ? 'Начало' : `${Math.round(timePercent * TIME_RANGE / 86400000 / 100)} дн назад`}</span>
+              <span className="text-[10px] text-gray-500 tabular-nums">{timePercent >= 100 ? 'Сейчас' : timePercent <= 0 ? 'Начало' : `${Math.round((100 - timePercent) * TIME_RANGE / 86400000 / 100)} дн. назад`}</span>
               <input type="range" min={0} max={100} step={1} value={timePercent} onChange={(e) => setTimePercent(Number(e.target.value))} className="w-28 h-1 bg-white/10 rounded-full appearance-none cursor-pointer accent-emerald-500" />
             </div>
           </div>
@@ -379,6 +290,7 @@ export default function MemberConnectionsPage() {
           {viewMode === 'graph' && size.w > 0 && size.h > 0 && (
             <>
               <WebGLGraph
+                key={graphKey}
                 ref={graphRef}
                 users={connectedUsers}
                 bonds={myBonds}
@@ -441,9 +353,9 @@ export default function MemberConnectionsPage() {
                   </div>
                 </div>
               )}
-              {/* Hint */}
+              {/* Humanized Hint */}
               <div className="absolute bottom-3 left-1/2 -translate-x-1/2 z-40 px-3 py-1.5 rounded-full bg-[#131b2e]/60 border border-white/5">
-                <p className="text-[9px] text-gray-600">Перетащить &middot; Кликнуть для фокуса &middot; Shift + выбор &middot; Правый клик — меню</p>
+                <p className="text-[9px] text-gray-600">Перетащить · Клик для фокуса · Shift + выбор · Правый клик — меню</p>
               </div>
             </>
           )}
@@ -480,7 +392,7 @@ export default function MemberConnectionsPage() {
       {ctxMenu && <ContextMenu x={ctxMenu.x} y={ctxMenu.y} userName={ctxMenu.user.name} onAction={handleCtxAction} onClose={() => setCtxMenu(null)} />}
 
       {/* Slide-over Panel */}
-      {panelUser && <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40" onClick={() => { setPanelUser(null); setFocusNodeId(null); }} />}
+      {panelUser && <div className="fixed inset-0 bg-black/40 backdrop-blur-sm z-40 transition-opacity" onClick={() => { setPanelUser(null); setFocusNodeId(null); }} />}
       <div className={`fixed right-0 top-14 bottom-0 w-[380px] z-50 transition-transform duration-300 ${panelUser ? 'translate-x-0' : 'translate-x-full'}`}>
         <div className="h-full bg-[#0c1222]/95 backdrop-blur-xl border-l border-white/10 flex flex-col">
           <div className="flex items-center justify-between px-5 py-4 border-b border-white/5">
@@ -542,30 +454,9 @@ export default function MemberConnectionsPage() {
         </div>
       </div>
 
-      {/* ====== ONBOARDING OVERLAY ====== */}
-      {showOnboarding && (
-        <div className="absolute inset-0 z-[60] flex items-center justify-center bg-black/60 backdrop-blur-sm" onClick={() => { setShowOnboarding(false); localStorage.setItem('mentori-onboarded', '1'); }}>
-          <div className="max-w-sm mx-4 p-6 rounded-2xl bg-[#0c1222] border border-amber-500/20 shadow-2xl text-center" onClick={(e) => e.stopPropagation()}>
-            <div className="w-12 h-12 rounded-full bg-amber-500/10 border border-amber-500/20 flex items-center justify-center mx-auto mb-4">
-              <Sun className="w-6 h-6 text-amber-400" />
-            </div>
-            <h3 className="text-lg font-bold text-gray-100 mb-2">Солнце опоры</h3>
-            <p className="text-[12px] text-gray-400 leading-relaxed mb-1">Вы — в центре. Вокруг вас те, с кем вы связаны.</p>
-            <div className="space-y-1.5 my-4 text-left">
-              <div className="flex items-center gap-2 text-[11px] text-gray-300"><div className="w-1.5 h-1.5 rounded-full bg-emerald-400 flex-shrink-0" />Перетащите круги — расширьте или соберите</div>
-              <div className="flex items-center gap-2 text-[11px] text-gray-300"><div className="w-1.5 h-1.5 rounded-full bg-sky-400 flex-shrink-0" />Кликните круг — откроется карточка связи</div>
-              <div className="flex items-center gap-2 text-[11px] text-gray-300"><div className="w-1.5 h-1.5 rounded-full bg-amber-400 flex-shrink-0" />Shift + клик — выбор нескольких</div>
-              <div className="flex items-center gap-2 text-[11px] text-gray-300"><div className="w-1.5 h-1.5 rounded-full bg-rose-400 flex-shrink-0" />Правый клик — меню действий</div>
-            </div>
-            <button onClick={() => { setShowOnboarding(false); localStorage.setItem('mentori-onboarded', '1'); }} className="w-full py-2.5 rounded-xl bg-amber-500/15 border border-amber-500/20 text-amber-400 text-[12px] font-semibold hover:bg-amber-500/25 transition-colors">
-              Начать
-            </button>
-          </div>
-        </div>
-      )}
       {/* Toast */}
       {toast.visible && (
-        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium shadow-xl animate-pulse">
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium shadow-xl">
           {toast.msg}
         </div>
       )}

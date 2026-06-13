@@ -17,17 +17,6 @@ interface GLn {
   lastReinforced: number; bondIndex: number; totalBondsBetween: number;
 }
 
-export interface Bookmark {
-  id: string; name: string; zoom: number;
-  centerX: number; centerY: number;
-  positions: Record<string, { x: number; y: number }>;
-  timestamp: number;
-}
-
-interface UndoState {
-  positions: Record<string, { x: number; y: number; fx?: number | null; fy?: number | null }>;
-}
-
 function hexRgba(hex: string, a: number): string {
   const r = parseInt(hex.slice(1, 3), 16);
   const g = parseInt(hex.slice(3, 5), 16);
@@ -93,9 +82,6 @@ export interface WebGLGraphHandle {
   centerAt: (x: number, y: number, duration: number) => void;
   getCenter: () => { x: number; y: number };
   canvas: HTMLCanvasElement | null;
-  resetSun: () => void;
-  saveBookmark: (name: string) => Bookmark;
-  restoreBookmark: (bm: Bookmark) => void;
   getNodePositions: () => Record<string, { x: number; y: number }>;
 }
 
@@ -113,8 +99,6 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
   const pinnedRef = useRef<Set<string>>(new Set());
   const birthRef = useRef(performance.now() / 1000);
   const gDataRef = useRef<{ nodes: GNode[]; links: GLn[] } | null>(null);
-  const undoStack = useRef<UndoState[]>([]);
-  const redoStack = useRef<UndoState[]>([]);
 
   useImperativeHandle(ref, () => ({
     zoomToFit: (d: number, p: number) => { fgRef.current?.zoomToFit(d, p); },
@@ -122,84 +106,10 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
     centerAt: (x: number, y: number, d: number) => fgRef.current?.centerAt(x, y, d),
     getCenter: () => ({ x: fgRef.current?.centerX?.() || 0, y: fgRef.current?.centerY?.() || 0 }),
     get canvas() { return fgRef.current?.canvas; },
-    resetSun: () => {
-      if (!fgRef.current || !gDataRef.current) return;
-      const cx = width / 2, cy = height / 2;
-      const radius = Math.min(width, height) * 0.32;
-      const nodes = gDataRef.current.nodes;
-      // Temporarily disable forces
-      fgRef.current.d3Force('charge', null);
-      fgRef.current.d3Force('link', null);
-      fgRef.current.d3Force('collision', null);
-      fgRef.current.d3Force('center', null);
-      // Position nodes
-      const others = nodes.filter((n) => n.id !== currentUserId);
-      nodes.forEach((n) => {
-        if (n.id === currentUserId) {
-          n.x = cx; n.y = cy; n.fx = cx; n.fy = cy;
-        } else {
-          const idx = others.findIndex((o) => o.id === n.id);
-          const angle = (idx / Math.max(others.length, 1)) * Math.PI * 2 - Math.PI / 2;
-          n.x = cx + Math.cos(angle) * radius;
-          n.y = cy + Math.sin(angle) * radius;
-          n.fx = n.x; n.fy = n.y;
-        }
-      });
-      // Push to graph
-      fgRef.current.graphData(gDataRef.current);
-      fgRef.current.centerAt(cx, cy, 0);
-      // Re-enable forces gently
-      setTimeout(() => {
-        if (!fgRef.current) return;
-        fgRef.current.d3Force('charge', d3.forceManyBody().strength(-20));
-        fgRef.current.d3Force('link', d3.forceLink().id((d: any) => d.id).distance(150).strength(0.2));
-        fgRef.current.d3Force('collision', d3.forceCollide().radius((d: any) => d.val + 12).strength(0.5));
-        fgRef.current.d3Force('center', d3.forceCenter(width / 2, height / 2).strength(0.015));
-      }, 100);
-      fgRef.current.zoomToFit(400, 100);
-    },
-    saveBookmark: (name: string) => {
-      const positions: Record<string, { x: number; y: number }> = {};
-      gDataRef.current?.nodes.forEach((n) => { if (n.x != null && n.y != null) positions[n.id] = { x: n.x, y: n.y }; });
-      return { id: `bm_${Date.now()}`, name, zoom: fgRef.current?.zoom() || 1, centerX: width / 2, centerY: height / 2, positions, timestamp: Date.now() };
-    },
-    restoreBookmark: (bm: Bookmark) => {
-      if (!fgRef.current || !gDataRef.current) return;
-      console.log('restoreBookmark', bm.name, 'positions:', Object.keys(bm.positions).length);
-      // Apply positions
-      gDataRef.current.nodes.forEach((n) => {
-        const p = bm.positions[n.id];
-        if (p) { n.x = p.x; n.y = p.y; n.fx = p.x; n.fy = p.y; }
-      });
-      fgRef.current.graphData(gDataRef.current);
-      // Animate view
-      fgRef.current.centerAt(bm.centerX, bm.centerY, 500);
-      setTimeout(() => { fgRef.current?.zoom(bm.zoom, 400); }, 100);
-    },
     getNodePositions: () => {
       const p: Record<string, { x: number; y: number }> = {};
       gDataRef.current?.nodes.forEach((n) => { if (n.x != null && n.y != null) p[n.id] = { x: n.x, y: n.y }; });
       return p;
-    },
-    undo: () => {
-      if (undoStack.current.length === 0) return false;
-      const state = undoStack.current.pop()!;
-      const cur: UndoState = { positions: {} };
-      gDataRef.current?.nodes.forEach((n) => { cur.positions[n.id] = { x: n.x!, y: n.y!, fx: n.fx, fy: n.fy }; });
-      redoStack.current.push(cur);
-      gDataRef.current?.nodes.forEach((n) => { const s = state.positions[n.id]; if (s) { n.x = s.x; n.y = s.y; n.fx = s.fx; n.fy = s.fy; } });
-      if (fgRef.current && gDataRef.current) { fgRef.current.graphData(gDataRef.current); fgRef.current.d3ReheatSimulation(); }
-      return true;
-    },
-    redo: () => {
-      if (redoStack.current.length === 0) return false;
-      const state = redoStack.current.pop()!;
-      const cur: UndoState = { positions: {} };
-      gDataRef.current?.nodes.forEach((n) => { cur.positions[n.id] = { x: n.x!, y: n.y!, fx: n.fx, fy: n.fy }; });
-      undoStack.current.push(cur);
-      gDataRef.current?.nodes.forEach((n) => { const s = state.positions[n.id]; if (s) { n.x = s.x; n.y = s.y; n.fx = s.fx; n.fy = s.fy; } });
-      if (fgRef.current && gDataRef.current) { fgRef.current.graphData(gDataRef.current); fgRef.current.d3ReheatSimulation(); }
-      return true;
     },
   }));
 
@@ -321,14 +231,15 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
     return () => clearInterval(iv);
   }, [currentUserId, width, height]);
 
-  // Positions for minimap
+  // Positions for minimap — read from force-graph directly
   useEffect(() => {
     const iv = setInterval(() => {
-      if (onPositionsChange && gDataRef.current) {
-        const p: Record<string, { x: number; y: number }> = {};
-        gDataRef.current.nodes.forEach((n) => { if (n.x != null && n.y != null) p[n.id] = { x: n.x, y: n.y }; });
-        onPositionsChange(p);
-      }
+      if (!onPositionsChange || !fgRef.current) return;
+      const data = fgRef.current.graphData();
+      if (!data?.nodes) return;
+      const p: Record<string, { x: number; y: number }> = {};
+      data.nodes.forEach((n: any) => { if (n.x != null && n.y != null) p[n.id] = { x: n.x, y: n.y }; });
+      onPositionsChange(p);
     }, 50);
     return () => clearInterval(iv);
   }, [onPositionsChange]);
@@ -606,38 +517,24 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
     });
   }, []);
 
-  // Drag with undo
-  const dragStartPos = useRef<UndoState | null>(null);
   const onDragStart = useCallback((node: any) => {
     const n = node as GNode;
     if (currentUserId && n.id === currentUserId) {
-      // Force "me" back to center immediately
       n.fx = width / 2; n.fy = height / 2; n.x = width / 2; n.y = height / 2;
-      return;
     }
-    const state: UndoState = { positions: {} };
-    gDataRef.current?.nodes.forEach((nd) => { state.positions[nd.id] = { x: nd.x!, y: nd.y!, fx: nd.fx, fy: nd.fy }; });
-    dragStartPos.current = state;
   }, [currentUserId, width, height]);
 
   const onDragEnd = useCallback((node: any) => {
     const n = node as GNode;
     if (currentUserId && n.id === currentUserId) {
-      // Lock "me" to center
       n.fx = width / 2; n.fy = height / 2; n.x = width / 2; n.y = height / 2;
       if (fgRef.current) { fgRef.current.centerAt(width / 2, height / 2, 0); }
       return;
     }
     n.fx = n.x; n.fy = n.y;
     pinnedRef.current.add(n.id);
-    if (dragStartPos.current) {
-      undoStack.current.push(dragStartPos.current);
-      if (undoStack.current.length > 50) undoStack.current.shift();
-      redoStack.current = [];
-      dragStartPos.current = null;
-    }
     if (fgRef.current) fgRef.current.d3ReheatSimulation();
-  }, [width, height]);
+  }, [currentUserId, width, height]);
 
   // Click — skip self
   const lastClick = useRef<{ id: string; time: number } | null>(null);

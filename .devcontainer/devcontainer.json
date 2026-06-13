@@ -1,0 +1,13 @@
+{
+  "name": "Mentori Club",
+  "image": "mcr.microsoft.com/devcontainers/typescript-node:20",
+  "postAttachCommand": "bash .devcontainer/post-attach.sh",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "bradlc.vscode-tailwindcss",
+        "esbenp.prettier-vscode"
+      ]
+    }
+  }
+}

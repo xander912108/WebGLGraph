@@ -13,7 +13,6 @@ interface Props {
 }
 
 const size = 180;
-const pad = 10;
 
 export default function MiniMap({ users, bonds, nodePositions, viewport, width, height, onViewportClick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -24,84 +23,74 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Background — brighter
+    // Background
     ctx.fillStyle = '#1a2236';
     ctx.fillRect(0, 0, size, size);
 
     // Grid dots
-    ctx.fillStyle = 'rgba(255,255,255,0.06)';
-    for (let gx = pad; gx < size - pad; gx += 14) {
-      for (let gy = pad; gy < size - pad; gy += 14) {
+    ctx.fillStyle = 'rgba(255,255,255,0.05)';
+    for (let gx = 8; gx < size - 8; gx += 12) {
+      for (let gy = 8; gy < size - 8; gy += 12) {
         ctx.fillRect(gx, gy, 1, 1);
       }
     }
 
     // Border
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, size, size);
 
-    // Determine positions to use
-    let pos: Record<string, { x: number; y: number }>;
-    let useSunLayout = false;
+    // Build sun layout positions (same as WebGLGraph)
+    const meUser = users.find((u) => u.name === '\u042F');
+    const meId = meUser?.id;
+    const others = users.filter((u) => u.id !== meId);
+    const cx = width / 2;
+    const cy = height / 2;
+    const sunRadius = Math.min(width, height) * 0.32;
 
-    if (nodePositions && Object.keys(nodePositions).length >= users.length) {
-      // Use real positions from force-graph
-      pos = nodePositions;
-    } else {
-      // Fallback: sun layout
-      useSunLayout = true;
-      const meUser = users.find((u) => u.name === 'Я');
-      const meId = meUser?.id;
-      const others = users.filter((u) => u.id !== meId);
-      pos = {};
-
-      const cx = width / 2;
-      const cy = height / 2;
-      const radius = Math.min(width, height) * 0.32;
-
-      if (meId) {
-        pos[meId] = { x: cx, y: cy };
-      }
-      const count = others.length;
-      others.forEach((u, i) => {
-        const angle = (i / Math.max(count, 1)) * Math.PI * 2 - Math.PI / 2;
-        pos[u.id] = { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius };
-      });
+    const sunPos: Record<string, { x: number; y: number }> = {};
+    if (meId) {
+      sunPos[meId] = { x: cx, y: cy };
     }
+    const count = others.length;
+    others.forEach((u, i) => {
+      const angle = (i / Math.max(count, 1)) * Math.PI * 2 - Math.PI / 2;
+      sunPos[u.id] = {
+        x: cx + Math.cos(angle) * sunRadius,
+        y: cy + Math.sin(angle) * sunRadius,
+      };
+    });
+
+    // Merge: use real nodePositions if available (for dragged nodes), else sun layout
+    const pos: Record<string, { x: number; y: number }> = {};
+    users.forEach((u) => {
+      const real = nodePositions[u.id];
+      if (real && real.x != null && real.y != null) {
+        pos[u.id] = real;
+      } else {
+        pos[u.id] = sunPos[u.id] || { x: cx, y: cy };
+      }
+    });
 
     if (Object.keys(pos).length === 0) return;
 
-    // Compute bounds
+    // Compute bounds from merged positions
     const vals = Object.values(pos);
-    let minX = Math.min(...vals.map((p) => p.x));
-    let maxX = Math.max(...vals.map((p) => p.x));
-    let minY = Math.min(...vals.map((p) => p.y));
-    let maxY = Math.max(...vals.map((p) => p.y));
-
-    if (useSunLayout) {
-      // For sun layout, add fixed padding
-      const p = 120;
-      minX -= p; maxX += p;
-      minY -= p; maxY += p;
-    } else {
-      // For real positions, add smaller padding
-      const p = 60;
-      minX -= p; maxX += p;
-      minY -= p; maxY += p;
-    }
-
+    const minX = Math.min(...vals.map((p) => p.x)) - 80;
+    const maxX = Math.max(...vals.map((p) => p.x)) + 80;
+    const minY = Math.min(...vals.map((p) => p.y)) - 80;
+    const maxY = Math.max(...vals.map((p) => p.y)) + 80;
     const spanX = Math.max(maxX - minX, 200);
     const spanY = Math.max(maxY - minY, 200);
 
-    const sc = Math.min((size - pad * 2) / spanX, (size - pad * 2) / spanY);
-    const ox = pad + (size - pad * 2 - spanX * sc) / 2 - minX * sc;
-    const oy = pad + (size - pad * 2 - spanY * sc) / 2 - minY * sc;
+    const sc = Math.min((size - 16) / spanX, (size - 16) / spanY);
+    const ox = 8 + (size - 16 - spanX * sc) / 2 - minX * sc;
+    const oy = 8 + (size - 16 - spanY * sc) / 2 - minY * sc;
 
     const tx = (x: number) => x * sc + ox;
     const ty = (y: number) => y * sc + oy;
 
-    // Links — brighter
+    // Links
     bonds.forEach((b) => {
       const s = pos[b.sourceId];
       const t = pos[b.targetId];
@@ -114,13 +103,13 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
       ctx.stroke();
     });
 
-    // Nodes — brighter
+    // Nodes
     users.forEach((u) => {
       const p = pos[u.id];
       if (!p) return;
       const x = tx(p.x);
       const y = ty(p.y);
-      const isMe = u.name === 'Я';
+      const isMe = u.id === meId;
       const color = isMe ? '#fbbf24' : (u.isLeader ? '#fbbf24' : STAGE_COLORS[u.stage]);
 
       // Glow
@@ -147,11 +136,11 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
         ctx.textAlign = 'center';
         ctx.textBaseline = 'top';
         ctx.fillStyle = '#fbbf24';
-        ctx.fillText('Я', x, y + 10);
+        ctx.fillText('\u042F', x, y + 10);
       }
     });
 
-    // Viewport indicator — bright green rectangle
+    // Viewport indicator
     const vx = viewport.x || 0;
     const vy = viewport.y || 0;
     const vz = viewport.zoom || 1;
@@ -160,18 +149,17 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     const vrx = tx(vx - (width / vz) / 2);
     const vry = ty(vy - (height / vz) / 2);
 
-    // Clamp
-    const cx = Math.max(0, Math.min(vrx, size - 2));
-    const cy_ = Math.max(0, Math.min(vry, size - 2));
-    const cw = Math.min(vw, size - cx);
-    const ch = Math.min(vh, size - cy_);
+    const cX = Math.max(0, Math.min(vrx, size - 2));
+    const cY = Math.max(0, Math.min(vry, size - 2));
+    const cW = Math.min(vw, size - cX);
+    const cH = Math.min(vh, size - cY);
 
-    if (cw > 2 && ch > 2) {
+    if (cW > 2 && cH > 2) {
       ctx.strokeStyle = 'rgba(52,211,153,0.9)';
       ctx.lineWidth = 1.5;
-      ctx.strokeRect(cx, cy_, cw, ch);
+      ctx.strokeRect(cX, cY, cW, cH);
       ctx.fillStyle = 'rgba(52,211,153,0.08)';
-      ctx.fillRect(cx, cy_, cw, ch);
+      ctx.fillRect(cX, cY, cW, cH);
     }
 
   }, [users, bonds, nodePositions, viewport, width, height]);
@@ -183,58 +171,45 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
-    // Determine positions (same logic as useEffect)
-    let pos: Record<string, { x: number; y: number }>;
-    let useSunLayout = false;
+    // Build same transform as in useEffect
+    const meUser = users.find((u) => u.name === '\u042F');
+    const meId = meUser?.id;
+    const others = users.filter((u) => u.id !== meId);
+    const cx = width / 2;
+    const cy = height / 2;
+    const sunRadius = Math.min(width, height) * 0.32;
 
-    if (nodePositions && Object.keys(nodePositions).length >= users.length) {
-      pos = nodePositions;
-    } else {
-      useSunLayout = true;
-      const meUser = users.find((u) => u.name === 'Я');
-      const meId = meUser?.id;
-      const others = users.filter((u) => u.id !== meId);
-      pos = {};
-      const cx = width / 2;
-      const cy = height / 2;
-      const radius = Math.min(width, height) * 0.32;
-      if (meId) pos[meId] = { x: cx, y: cy };
-      const count = others.length;
-      others.forEach((u, i) => {
-        const angle = (i / Math.max(count, 1)) * Math.PI * 2 - Math.PI / 2;
-        pos[u.id] = { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius };
-      });
-    }
+    const sunPos: Record<string, { x: number; y: number }> = {};
+    if (meId) sunPos[meId] = { x: cx, y: cy };
+    const count = others.length;
+    others.forEach((u, i) => {
+      const angle = (i / Math.max(count, 1)) * Math.PI * 2 - Math.PI / 2;
+      sunPos[u.id] = { x: cx + Math.cos(angle) * sunRadius, y: cy + Math.sin(angle) * sunRadius };
+    });
+
+    const pos: Record<string, { x: number; y: number }> = {};
+    users.forEach((u) => {
+      const real = nodePositions[u.id];
+      if (real && real.x != null && real.y != null) {
+        pos[u.id] = real;
+      } else {
+        pos[u.id] = sunPos[u.id] || { x: cx, y: cy };
+      }
+    });
 
     const vals = Object.values(pos);
     if (vals.length === 0) return;
-
-    let minX = Math.min(...vals.map((p) => p.x));
-    let maxX = Math.max(...vals.map((p) => p.x));
-    let minY = Math.min(...vals.map((p) => p.y));
-    let maxY = Math.max(...vals.map((p) => p.y));
-
-    if (useSunLayout) {
-      const p = 120;
-      minX -= p; maxX += p;
-      minY -= p; maxY += p;
-    } else {
-      const p = 60;
-      minX -= p; maxX += p;
-      minY -= p; maxY += p;
-    }
-
+    const minX = Math.min(...vals.map((p) => p.x)) - 80;
+    const maxX = Math.max(...vals.map((p) => p.x)) + 80;
+    const minY = Math.min(...vals.map((p) => p.y)) - 80;
+    const maxY = Math.max(...vals.map((p) => p.y)) + 80;
     const spanX = Math.max(maxX - minX, 200);
     const spanY = Math.max(maxY - minY, 200);
-    const sc = Math.min((size - pad * 2) / spanX, (size - pad * 2) / spanY);
-    const ox = pad + (size - pad * 2 - spanX * sc) / 2 - minX * sc;
-    const oy = pad + (size - pad * 2 - spanY * sc) / 2 - minY * sc;
+    const sc = Math.min((size - 16) / spanX, (size - 16) / spanY);
+    const ox = 8 + (size - 16 - spanX * sc) / 2 - minX * sc;
+    const oy = 8 + (size - 16 - spanY * sc) / 2 - minY * sc;
 
-    // Convert minimap pixel → world coord
-    const worldX = (mx - ox) / sc;
-    const worldY = (my - oy) / sc;
-
-    onViewportClick(worldX, worldY);
+    onViewportClick((mx - ox) / sc, (my - oy) / sc);
   };
 
   return (

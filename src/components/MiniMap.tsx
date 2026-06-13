@@ -24,8 +24,12 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, size, size);
 
-    ctx.fillStyle = 'rgba(6,10,20,0.9)';
+    ctx.fillStyle = '#0a1020';
     ctx.fillRect(0, 0, size, size);
+    // Subtle grid
+    ctx.strokeStyle = 'rgba(255,255,255,0.03)';
+    ctx.lineWidth = 0.5;
+    for (let i = 0; i < size; i += 15) { ctx.beginPath(); ctx.moveTo(i, 0); ctx.lineTo(i, size); ctx.stroke(); ctx.beginPath(); ctx.moveTo(0, i); ctx.lineTo(size, i); ctx.stroke(); }
 
     const pos = nodePositions;
     if (!pos || Object.keys(pos).length === 0) {
@@ -66,12 +70,20 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
       ctx.stroke();
     });
 
-    // Nodes
+    // Nodes with glow
     users.forEach((u) => {
       const p = pos[u.id];
       if (!p) return;
+      const x = tx(p.x), y = ty(p.y);
+      const r = u.isLeader ? 4 : 3;
+      // Glow
       ctx.beginPath();
-      ctx.arc(tx(p.x), ty(p.y), u.isLeader ? 3 : 2.5, 0, Math.PI * 2);
+      ctx.arc(x, y, r + 2, 0, Math.PI * 2);
+      ctx.fillStyle = u.isLeader ? 'rgba(251,191,36,0.2)' : hexRgba(STAGE_COLORS[u.stage], 0.15);
+      ctx.fill();
+      // Core
+      ctx.beginPath();
+      ctx.arc(x, y, r, 0, Math.PI * 2);
       ctx.fillStyle = u.isLeader ? '#fbbf24' : STAGE_COLORS[u.stage];
       ctx.fill();
     });

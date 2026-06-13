@@ -128,19 +128,20 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
       const radius = Math.min(width, height) * 0.32;
       const nodes = gDataRef.current.nodes;
       const others = nodes.filter((n) => n.id !== currentUserId);
-      // Position and pin all nodes
+      const otherMap = new Map(others.map((n, i) => [n.id, i]));
       nodes.forEach((n) => {
         if (n.id === currentUserId) {
-          n.fx = cx; n.fy = cy; n.x = cx; n.y = cy;
+          n.x = cx; n.y = cy; n.fx = cx; n.fy = cy;
         } else {
-          const idx = others.indexOf(n);
+          const idx = otherMap.get(n.id) ?? 0;
           const angle = (idx / others.length) * Math.PI * 2 - Math.PI / 2;
-          n.fx = cx + Math.cos(angle) * radius;
-          n.fy = cy + Math.sin(angle) * radius;
-          n.x = n.fx; n.y = n.fy;
+          const nx = cx + Math.cos(angle) * radius;
+          const ny = cy + Math.sin(angle) * radius;
+          n.x = nx; n.y = ny; n.fx = nx; n.fy = ny;
         }
       });
       fgRef.current.graphData(gDataRef.current);
+      fgRef.current.centerAt(cx, cy, 0);
       fgRef.current.zoomToFit(400, 100);
     },
     saveBookmark: (name: string) => {
@@ -150,7 +151,8 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
     },
     restoreBookmark: (bm: Bookmark) => {
       if (!fgRef.current || !gDataRef.current) return;
-      fgRef.current.zoom(bm.zoom, 400);
+      fgRef.current.centerAt(bm.centerX, bm.centerY, 400);
+      setTimeout(() => { fgRef.current?.zoom(bm.zoom, 300); }, 100);
       gDataRef.current.nodes.forEach((n) => {
         const p = bm.positions[n.id];
         if (p) { n.fx = p.x; n.fy = p.y; n.x = p.x; n.y = p.y; }

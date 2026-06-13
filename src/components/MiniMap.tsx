@@ -17,19 +17,18 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
   const size = 180;
   const pad = 4;
 
+  // Stable draw — don't recreate on every viewport change
   const draw = useCallback(() => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
     ctx.clearRect(0, 0, size, size);
 
-    // Background
     ctx.fillStyle = 'rgba(6,10,20,0.9)';
     ctx.fillRect(0, 0, size, size);
 
     if (!nodePositions || Object.keys(nodePositions).length === 0) return;
 
-    // Find bounds
     const xs = Object.values(nodePositions).map((p) => p.x);
     const ys = Object.values(nodePositions).map((p) => p.y);
     const minX = Math.min(...xs), maxX = Math.max(...xs);
@@ -70,32 +69,36 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
       ctx.fill();
     });
 
-    // Viewport focus indicator (small, follows center)
+    // Viewport rectangle — shows visible area, scales with zoom
     const vx = viewport.x || 0;
     const vy = viewport.y || 0;
-    const vSize = 6;
-    const vrx = tx(vx) - vSize / 2;
-    const vry = ty(vy) - vSize / 2;
+    const vz = viewport.zoom || 1;
+    const vw = width / vz;
+    const vh = height / vz;
+    const vrx = tx(vx - vw / 2);
+    const vry = ty(vy - vh / 2);
+    const vrw = Math.max(vw * scale, 8);
+    const vrh = Math.max(vh * scale, 8);
 
-    ctx.strokeStyle = 'rgba(52,211,153,0.7)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(vrx, vry, vSize, vSize);
-    ctx.fillStyle = 'rgba(52,211,153,0.15)';
-    ctx.fillRect(vrx, vry, vSize, vSize);
+    ctx.strokeStyle = 'rgba(52,211,153,0.6)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(vrx, vry, vrw, vrh);
+    ctx.fillStyle = 'rgba(52,211,153,0.06)';
+    ctx.fillRect(vrx, vry, vrw, vrh);
 
-    // Border
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, size, size);
-  }, [users, bonds, nodePositions, viewport, width, height]);
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [users, bonds, nodePositions]);
 
-  // Real-time updates
+  // Real-time render loop — viewport updates every frame
   useEffect(() => {
     let raf: number;
     const loop = () => { draw(); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [draw]);
+  }, [draw, viewport]);
 
   const handleClick = (e: React.MouseEvent) => {
     const canvas = canvasRef.current;

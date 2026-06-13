@@ -127,16 +127,34 @@ const WebGLGraph = forwardRef<WebGLGraphHandle, Props>(function WebGLGraph({
       const cx = width / 2, cy = height / 2;
       const radius = Math.min(width, height) * 0.32;
       const nodes = gDataRef.current.nodes;
+      // Step 1: unpin all
+      nodes.forEach((n) => { n.fx = undefined; n.fy = undefined; });
+      // Step 2: position "me" at center
       const meNode = nodes.find((n) => n.id === currentUserId);
-      if (meNode) { meNode.fx = cx; meNode.fy = cy; meNode.x = cx; meNode.y = cy; }
+      if (meNode) { meNode.x = cx; meNode.y = cy; }
+      // Step 3: position others evenly around circle
       const others = nodes.filter((n) => n.id !== currentUserId);
       others.forEach((n, i) => {
         const angle = (i / others.length) * Math.PI * 2 - Math.PI / 2;
-        n.fx = cx + Math.cos(angle) * radius;
-        n.fy = cy + Math.sin(angle) * radius;
-        n.x = n.fx; n.y = n.fy;
+        n.x = cx + Math.cos(angle) * radius;
+        n.y = cy + Math.sin(angle) * radius;
       });
+      // Step 4: push to graph + reheat
       fgRef.current.graphData(gDataRef.current);
+      fgRef.current.d3ReheatSimulation();
+      // Step 5: re-pin after settle
+      setTimeout(() => {
+        if (!gDataRef.current) return;
+        const ns = gDataRef.current.nodes;
+        const me = ns.find((n) => n.id === currentUserId);
+        if (me) { me.fx = cx; me.fy = cy; }
+        ns.filter((n) => n.id !== currentUserId).forEach((n, i) => {
+          const a = (i / (ns.length - 1)) * Math.PI * 2 - Math.PI / 2;
+          n.fx = cx + Math.cos(a) * radius;
+          n.fy = cy + Math.sin(a) * radius;
+        });
+        fgRef.current?.graphData(gDataRef.current);
+      }, 500);
       fgRef.current.zoomToFit(400, 100);
     },
     saveBookmark: (name: string) => {

@@ -9,7 +9,7 @@ import LegendPanel from '@/components/LegendPanel';
 import ContextMenu from '@/components/ContextMenu';
 import MiniMap from '@/components/MiniMap';
 import {
-  Search, Link2, LayoutList, ChevronDown, ChevronUp, SlidersHorizontal,
+  Search, Link2, ChevronDown, ChevronUp, SlidersHorizontal,
   ZoomIn, ZoomOut, Download, X, RotateCcw, Clock as ClockIcon
 } from 'lucide-react';
 
@@ -62,7 +62,6 @@ export default function MemberConnectionsPage() {
   const [searchBondType, setSearchBondType] = useState<string | null>(null);
   const [searchRole, setSearchRole] = useState<string | null>(null);
   const [showSearch, setShowSearch] = useState(false);
-  const [viewMode, setViewMode] = useState<'graph' | 'list'>('graph');
   const [mousePos, setMousePos] = useState({ x: 0, y: 0 });
   const [zoom, setZoom] = useState(1);
   const [searchMatchIds, setSearchMatchIds] = useState<Set<string>>(new Set());
@@ -90,16 +89,15 @@ export default function MemberConnectionsPage() {
       graphRef.current?.zoomToFit(400, 100);
     }, 900);
     return () => clearTimeout(timer);
-  }, [viewMode, graphKey]);
+  }, [graphKey]);
 
   useEffect(() => {
-    if (viewMode !== 'graph') return;
     const iv = setInterval(() => {
       const c = graphRef.current?.getCenter?.();
       if (c) setViewportCenter(c);
     }, 200);
     return () => clearInterval(iv);
-  }, [viewMode]);
+  }, []);
 
   const currentUser = users.find((u) => u.id === CURRENT_USER_ID)!;
   const myBonds = useMemo(() => bonds.filter((b) => b.sourceId === CURRENT_USER_ID || b.targetId === CURRENT_USER_ID), []);
@@ -137,12 +135,6 @@ export default function MemberConnectionsPage() {
       .map((b) => ({ ...b, label: BOND_LABELS[b.type], description: BOND_DESCRIPTIONS[b.id] || `${BOND_LABELS[b.type]} с ${panelUser.name}`, timeAgo: timeAgo(b.lastReinforced) }));
   }, [panelUser]);
 
-  const myBondsList = useMemo(() => myBonds.map((b) => {
-    const otherId = b.sourceId === CURRENT_USER_ID ? b.targetId : b.sourceId;
-    const other = users.find((u) => u.id === otherId)!;
-    return { ...b, other, label: BOND_LABELS[b.type] };
-  }).sort((a, b) => b.strength - a.strength), [myBonds]);
-
   const onMouseMove = (e: React.MouseEvent) => {
     const rect = containerRef.current?.getBoundingClientRect();
     if (!rect) return;
@@ -169,16 +161,17 @@ export default function MemberConnectionsPage() {
 
   const rightActions = (
     <>
-      <button onClick={() => setViewMode(viewMode === 'list' ? 'graph' : 'list')} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:text-gray-200 hover:bg-white/5 transition-colors mr-1">
-        <LayoutList className="w-3.5 h-3.5" />{viewMode === 'list' ? 'Граф' : 'Список'}
-      </button>
-      <div className="h-5 w-px bg-white/10" />
       <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:text-amber-400 hover:bg-white/5 transition-colors" title="Вернуть в исходное состояние">
         <RotateCcw className="w-3.5 h-3.5" />Исходное состояние
       </button>
-      <button onClick={exportPng} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-500 hover:text-gray-200 transition-colors" title="Скачать карту связей">
-        <Download className="w-4 h-4" />
-      </button>
+      <div className="relative group/tooltip">
+        <button onClick={exportPng} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-500 hover:text-gray-200 transition-colors">
+          <Download className="w-4 h-4" />
+        </button>
+        <span className="absolute top-full right-0 mt-1.5 px-2 py-1 rounded-md bg-[#131b2e] border border-white/10 text-[10px] text-gray-300 whitespace-nowrap opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none shadow-xl z-50">
+          Скачать карту связей
+        </span>
+      </div>
     </>
   );
 
@@ -186,8 +179,7 @@ export default function MemberConnectionsPage() {
     <Layout rightActions={rightActions}>
 
       {/* ====== COMPACT FILTER BAR (Premium) ====== */}
-      {viewMode === 'graph' && (
-        <div className="flex-shrink-0 border-b border-white/5">
+      <div className="flex-shrink-0 border-b border-white/5">
           {/* Compact row — always visible */}
           <div className="px-5 py-2 flex items-center gap-3">
             {/* Search */}
@@ -271,7 +263,6 @@ export default function MemberConnectionsPage() {
             </div>
           )}
         </div>
-      )}
 
       {/* ====== BULK BAR ====== */}
       {selectedIds.size > 0 && (
@@ -287,7 +278,7 @@ export default function MemberConnectionsPage() {
       {/* ====== MAIN ====== */}
       <div className="flex-1 flex overflow-hidden">
         <div ref={containerRef} className="flex-1 relative" onMouseMove={onMouseMove}>
-          {viewMode === 'graph' && size.w > 0 && size.h > 0 && (
+          {size.w > 0 && size.h > 0 && (
             <>
               <WebGLGraph
                 key={graphKey}
@@ -359,32 +350,7 @@ export default function MemberConnectionsPage() {
               </div>
             </>
           )}
-          {/* List View */}
-          {viewMode === 'list' && (
-            <div className="h-full overflow-y-auto p-6 flex justify-center">
-              <div className="space-y-2 w-full max-w-lg">
-                <h2 className="text-sm font-semibold text-gray-300 mb-4">Мои связи ({myBondsList.length})</h2>
-                {myBondsList.map((b) => (
-                  <div key={b.id} className="flex items-center gap-3 p-2.5 rounded-lg bg-white/[0.03] border border-white/5 hover:bg-white/[0.05] transition-colors cursor-pointer"
-                    onClick={(e) => toggleSelect(b.other, e.shiftKey)}>
-                    <img src={b.other.avatar} alt="" className="w-7 h-7 rounded-full border flex-shrink-0" style={{ borderColor: STAGE_COLORS[b.other.stage] }} />
-                    <div className="flex-1 min-w-0">
-                      <div className="flex items-center gap-2">
-                        <span className="text-xs text-gray-200 truncate">{b.other.name}</span>
-                        <span className="text-[9px] text-gray-600 flex-shrink-0">{STAGE_NAMES[b.other.stage]}</span>
-                      </div>
-                      <div className="flex items-center gap-2 mt-0.5">
-                        <div className="w-1.5 h-1.5 rounded-full flex-shrink-0" style={{ background: BOND_COLORS[b.type] }} />
-                        <span className="text-[11px] truncate" style={{ color: BOND_COLORS[b.type] }}>{b.label}</span>
-                        <span className="text-[10px] font-mono text-gray-600 flex-shrink-0">x{b.strength}</span>
-                      </div>
-                    </div>
-                    <span className="text-[10px] font-mono text-emerald-400/70 flex-shrink-0">B {b.other.vklad}</span>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
+
         </div>
       </div>
 

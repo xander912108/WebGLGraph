@@ -13,7 +13,6 @@ interface Props {
 }
 
 const size = 180;
-const pad = 8;
 
 export default function MiniMap({ users, bonds, nodePositions, viewport, width, height, onViewportClick }: Props) {
   const canvasRef = useRef<HTMLCanvasElement>(null);
@@ -24,59 +23,56 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     const ctx = canvas.getContext('2d');
     if (!ctx) return;
 
-    // Bright semi-transparent background
-    ctx.fillStyle = 'rgba(15, 23, 42, 0.95)';
+    // Clear
+    ctx.clearRect(0, 0, size, size);
+
+    // Circular clip
+    ctx.save();
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2, 0, Math.PI * 2);
+    ctx.clip();
+
+    // Background
+    ctx.fillStyle = 'rgba(15, 23, 42, 0.92)';
     ctx.fillRect(0, 0, size, size);
 
-    // Border
-    ctx.strokeStyle = 'rgba(255,255,255,0.25)';
-    ctx.lineWidth = 1;
-    ctx.strokeRect(0, 0, size, size);
-
-    // Check positions
-    let pos = nodePositions;
-    if (!pos || Object.keys(pos).length === 0) {
-      // Fallback: compute sun layout positions
-      const cx = width / 2;
-      const cy = height / 2;
-      const radius = Math.min(width, height) * 0.32;
-      const meId = users.find((u) => u.name === 'Я')?.id || users[0]?.id;
-      const others = users.filter((u) => u.id !== meId);
-      pos = {};
-      users.forEach((u) => {
-        if (u.id === meId) {
-          pos[u.id] = { x: cx, y: cy };
-        } else {
-          const idx = others.findIndex((o) => o.id === u.id);
-          const angle = (idx / Math.max(others.length, 1)) * Math.PI * 2 - Math.PI / 2;
-          pos[u.id] = { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius };
-        }
-      });
+    // Subtle grid dots
+    ctx.fillStyle = 'rgba(255,255,255,0.04)';
+    for (let gx = 0; gx < size; gx += 12) {
+      for (let gy = 0; gy < size; gy += 12) {
+        ctx.fillRect(gx, gy, 1, 1);
+      }
     }
 
-    if (!pos || Object.keys(pos).length === 0) return;
+    ctx.restore();
 
-    // Compute bounds
-    const vals = Object.values(pos);
-    let minX = Math.min(...vals.map((p) => p.x));
-    let maxX = Math.max(...vals.map((p) => p.x));
-    let minY = Math.min(...vals.map((p) => p.y));
-    let maxY = Math.max(...vals.map((p) => p.y));
-    // Add padding
-    const padding = 80;
-    minX -= padding; maxX += padding;
-    minY -= padding; maxY += padding;
-    const spanX = Math.max(maxX - minX, 200);
-    const spanY = Math.max(maxY - minY, 200);
+    // Get positions — always use sun layout for minimap
+    const meUser = users.find((u) => u.name === 'Я');
+    const meId = meUser?.id;
+    const others = users.filter((u) => u.id !== meId);
+    const pos: Record<string, { x: number; y: number }> = {};
 
-    const sc = Math.min((size - pad * 2) / spanX, (size - pad * 2) / spanY);
-    const ox = pad + (size - pad * 2 - spanX * sc) / 2 - minX * sc;
-    const oy = pad + (size - pad * 2 - spanY * sc) / 2 - minY * sc;
+    // Sun layout: center = (0,0), others on circle radius 1
+    if (meId) {
+      pos[meId] = { x: 0, y: 0 };
+    }
+    const count = others.length;
+    others.forEach((u, i) => {
+      const angle = (i / Math.max(count, 1)) * Math.PI * 2 - Math.PI / 2;
+      pos[u.id] = { x: Math.cos(angle), y: Math.sin(angle) };
+    });
 
-    const tx = (x: number) => x * sc + ox;
-    const ty = (y: number) => y * sc + oy;
+    if (Object.keys(pos).length === 0) return;
 
-    // Links — brighter
+    // Transform: sun layout → minimap pixels
+    const centerX = size / 2;
+    const centerY = size / 2;
+    const mapRadius = (size / 2) - 14; // padding from edge
+
+    const tx = (x: number) => centerX + x * mapRadius;
+    const ty = (y: number) => centerY + y * mapRadius;
+
+    // Links
     bonds.forEach((b) => {
       const s = pos[b.sourceId];
       const t = pos[b.targetId];
@@ -84,56 +80,85 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
       ctx.beginPath();
       ctx.moveTo(tx(s.x), ty(s.y));
       ctx.lineTo(tx(t.x), ty(t.y));
-      ctx.strokeStyle = hexRgba(BOND_COLORS[b.type], 0.5);
-      ctx.lineWidth = 1.5;
+      ctx.strokeStyle = hexRgba(BOND_COLORS[b.type], 0.4);
+      ctx.lineWidth = 1;
       ctx.stroke();
     });
 
-    // Nodes — brighter with glow
+    // Nodes
     users.forEach((u) => {
       const p = pos[u.id];
       if (!p) return;
       const x = tx(p.x);
       const y = ty(p.y);
-      const color = u.isLeader ? '#fbbf24' : STAGE_COLORS[u.stage];
+      const isMe = u.id === meId;
+      const color = isMe ? '#fbbf24' : (u.isLeader ? '#fbbf24' : STAGE_COLORS[u.stage]);
 
-      // Glow
-      ctx.beginPath();
-      ctx.arc(x, y, 6, 0, Math.PI * 2);
-      ctx.fillStyle = hexRgba(color, 0.35);
-      ctx.fill();
+      if (isMe) {
+        // Central "Я" — larger gold glow
+        ctx.beginPath();
+        ctx.arc(x, y, 10, 0, Math.PI * 2);
+        ctx.fillStyle = hexRgba('#fbbf24', 0.25);
+        ctx.fill();
 
-      // Core — white-ish center for visibility
-      ctx.beginPath();
-      ctx.arc(x, y, 3, 0, Math.PI * 2);
-      ctx.fillStyle = color;
-      ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, 6, 0, Math.PI * 2);
+        ctx.fillStyle = '#fbbf24';
+        ctx.fill();
 
-      // White center dot
-      ctx.beginPath();
-      ctx.arc(x, y, 1.2, 0, Math.PI * 2);
-      ctx.fillStyle = 'rgba(255,255,255,0.8)';
-      ctx.fill();
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = '#fff';
+        ctx.fill();
+
+        // Label
+        ctx.font = 'bold 8px Inter, sans-serif';
+        ctx.textAlign = 'center';
+        ctx.textBaseline = 'middle';
+        ctx.fillStyle = '#fbbf24';
+        ctx.fillText('Я', x, y + 14);
+      } else {
+        // Regular node — smaller
+        ctx.beginPath();
+        ctx.arc(x, y, 4, 0, Math.PI * 2);
+        ctx.fillStyle = hexRgba(color, 0.3);
+        ctx.fill();
+
+        ctx.beginPath();
+        ctx.arc(x, y, 2.5, 0, Math.PI * 2);
+        ctx.fillStyle = color;
+        ctx.fill();
+      }
     });
 
-    // Viewport indicator — bright green
+    // Circular border
+    ctx.beginPath();
+    ctx.arc(size / 2, size / 2, size / 2 - 0.5, 0, Math.PI * 2);
+    ctx.strokeStyle = 'rgba(255,255,255,0.2)';
+    ctx.lineWidth = 1;
+    ctx.stroke();
+
+    // Viewport indicator
     const vx = viewport.x || 0;
     const vy = viewport.y || 0;
     const vz = viewport.zoom || 1;
-    const vw = Math.max(width / vz * sc, 12);
-    const vh = Math.max(height / vz * sc, 12);
-    const vrx = tx(vx - (width / vz) / 2);
-    const vry = ty(vy - (height / vz) / 2);
 
-    // Clamp to minimap bounds
-    const clampedX = Math.max(0, Math.min(vrx, size - vw));
-    const clampedY = Math.max(0, Math.min(vry, size - vh));
+    // Map viewport rect to minimap sun coordinates
+    const viewW = (width / vz) / (width * 0.65);
+    const viewH = (height / vz) / (height * 0.65);
+    const viewX = ((vx - width / 2) / (width * 0.325));
+    const viewY = ((vy - height / 2) / (height * 0.325));
 
-    ctx.strokeStyle = 'rgba(52,211,153,0.9)';
-    ctx.lineWidth = 1.5;
-    ctx.strokeRect(clampedX, clampedY, Math.min(vw, size - clampedX), Math.min(vh, size - clampedY));
-    ctx.fillStyle = 'rgba(52,211,153,0.1)';
-    ctx.fillRect(clampedX, clampedY, Math.min(vw, size - clampedX), Math.min(vh, size - clampedY));
+    const vrx = tx(viewX - viewW / 2);
+    const vry = ty(viewY - viewH / 2);
+    const vrW = Math.max(viewW * mapRadius, 8);
+    const vrH = Math.max(viewH * mapRadius, 8);
+
+    ctx.strokeStyle = 'rgba(52,211,153,0.7)';
+    ctx.lineWidth = 1;
+    ctx.strokeRect(vrx, vry, vrW, vrH);
+    ctx.fillStyle = 'rgba(52,211,153,0.06)';
+    ctx.fillRect(vrx, vry, vrW, vrH);
 
   }, [users, bonds, nodePositions, viewport, width, height]);
 
@@ -144,43 +169,19 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
-    // Recompute transform (same as in useEffect)
-    let pos = nodePositions;
-    if (!pos || Object.keys(pos).length === 0) {
-      const cx = width / 2;
-      const cy = height / 2;
-      const radius = Math.min(width, height) * 0.32;
-      const meId = users.find((u) => u.name === 'Я')?.id || users[0]?.id;
-      const others = users.filter((u) => u.id !== meId);
-      pos = {};
-      users.forEach((u) => {
-        if (u.id === meId) {
-          pos[u.id] = { x: cx, y: cy };
-        } else {
-          const idx = others.findIndex((o) => o.id === u.id);
-          const angle = (idx / Math.max(others.length, 1)) * Math.PI * 2 - Math.PI / 2;
-          pos[u.id] = { x: cx + Math.cos(angle) * radius, y: cy + Math.sin(angle) * radius };
-        }
-      });
-    }
+    // Map click to sun layout coords (-1 to 1)
+    const nx = (mx - size / 2) / ((size / 2) - 14);
+    const ny = (my - size / 2) / ((size / 2) - 14);
 
-    const vals = Object.values(pos);
-    if (vals.length === 0) return;
-    let minX = Math.min(...vals.map((p) => p.x)) - 80;
-    let maxX = Math.max(...vals.map((p) => p.x)) + 80;
-    let minY = Math.min(...vals.map((p) => p.y)) - 80;
-    let maxY = Math.max(...vals.map((p) => p.y)) + 80;
-    const spanX = Math.max(maxX - minX, 200);
-    const spanY = Math.max(maxY - minY, 200);
-    const sc = Math.min((size - pad * 2) / spanX, (size - pad * 2) / spanY);
-    const ox = pad + (size - pad * 2 - spanX * sc) / 2 - minX * sc;
-    const oy = pad + (size - pad * 2 - spanY * sc) / 2 - minY * sc;
+    // Convert to world coords
+    const worldX = width / 2 + nx * Math.min(width, height) * 0.32;
+    const worldY = height / 2 + ny * Math.min(width, height) * 0.32;
 
-    onViewportClick((mx - ox) / sc, (my - oy) / sc);
+    onViewportClick(worldX, worldY);
   };
 
   return (
-    <div className="absolute bottom-3 right-3 z-40 rounded-lg overflow-hidden shadow-2xl border border-white/20" style={{ width: size, height: size }}>
+    <div className="absolute bottom-3 right-3 z-40 rounded-full overflow-hidden shadow-2xl border border-white/20" style={{ width: size, height: size }}>
       <canvas ref={canvasRef} width={size} height={size} className="cursor-pointer" onClick={handleClick} />
     </div>
   );

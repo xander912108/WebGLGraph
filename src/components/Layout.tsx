@@ -39,8 +39,8 @@ export default function Layout({ children, rightActions }: Props) {
               <Link
                 key={item.to}
                 to={item.to}
-                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-colors ${
-                  isActive ? `${item.activeColor} ${item.activeBg}` : 'text-gray-400 hover:text-gray-200 hover:bg-white/5'
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium transition-all duration-200 ${
+                  isActive ? `${item.activeColor} ${item.activeBg}` : 'text-gray-400 hover:text-white hover:bg-white/10'
                 }`}>
                 <item.icon className="w-3.5 h-3.5" />
                 {item.label}

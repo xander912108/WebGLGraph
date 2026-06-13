@@ -161,17 +161,17 @@ export default function MemberConnectionsPage() {
 
   const rightActions = (
     <>
-      <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:text-amber-400 hover:bg-white/5 transition-colors" title="Вернуть в исходное состояние">
-        <RotateCcw className="w-3.5 h-3.5" />Исходное состояние
-      </button>
       <div className="relative group/tooltip">
-        <button onClick={exportPng} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-500 hover:text-gray-200 transition-colors">
-          <Download className="w-4 h-4" />
+        <button onClick={handleReset} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg text-[11px] font-medium text-gray-400 hover:text-amber-400 hover:bg-white/5 transition-colors">
+          <RotateCcw className="w-3.5 h-3.5" />Исходное состояние
         </button>
         <span className="absolute top-full right-0 mt-1.5 px-2 py-1 rounded-md bg-[#131b2e] border border-white/10 text-[10px] text-gray-300 whitespace-nowrap opacity-0 group-hover/tooltip:opacity-100 transition-opacity pointer-events-none shadow-xl z-50">
-          Скачать карту связей
+          Вернуть в исходное состояние
         </span>
       </div>
+      <button onClick={exportPng} className="p-1.5 rounded-lg bg-white/5 border border-white/10 text-gray-500 hover:text-gray-200 transition-colors">
+        <Download className="w-4 h-4" />
+      </button>
     </>
   );
 

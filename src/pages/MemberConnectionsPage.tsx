@@ -81,6 +81,9 @@ export default function MemberConnectionsPage() {
   const [nodePositions, setNodePositions] = useState<Record<string, { x: number; y: number }>>({});
   const [viewportCenter, setViewportCenter] = useState({ x: 0, y: 0 });
   const [filtersExpanded, setFiltersExpanded] = useState(false);
+  const [bookmarkName, setBookmarkName] = useState('');
+  const [showBookmarkInput, setShowBookmarkInput] = useState(false);
+  const [toast, setToast] = useState<{ msg: string; visible: boolean }>({ msg: '', visible: false });
   const [showOnboarding, setShowOnboarding] = useState(() => {
     return !localStorage.getItem('mentori-onboarded');
   });
@@ -199,18 +202,17 @@ export default function MemberConnectionsPage() {
     switch (action) { case 'message': alert(`Чат с ${ctxMenu.user.name}`); break; case 'role': alert(`Роль для ${ctxMenu.user.name}`); break; case 'profile': alert(`Профиль ${ctxMenu.user.name}`); break; }
     setCtxMenu(null);
   };
+  const showToast = (msg: string) => { setToast({ msg, visible: true }); setTimeout(() => setToast({ msg: '', visible: false }), 2500); };
   const addBookmark = () => {
     if (!graphRef.current) return;
-    const name = prompt('Название закладки:', `Карта ${bookmarks.length + 1}`);
-    if (!name) return;
+    const name = bookmarkName.trim() || `Карта ${bookmarks.length + 1}`;
     const bm = graphRef.current.saveBookmark(name);
     const next = [bm, ...bookmarks];
     setBookmarks(next);
     saveBookmarks(next);
-    // Visual feedback
-    setBookmarkFlash(true);
-    setBookmarkSaved(true);
-    setTimeout(() => { setBookmarkFlash(false); setBookmarkSaved(false); }, 2000);
+    setBookmarkName('');
+    setShowBookmarkInput(false);
+    showToast('Карта связей сохранена!');
   };
   const restoreBookmark = (bm: Bookmark) => {
     console.log('Restoring bookmark:', bm.name, 'zoom:', bm.zoom, 'center:', bm.centerX, bm.centerY);
@@ -235,10 +237,23 @@ export default function MemberConnectionsPage() {
           <div className="absolute top-full right-0 mt-2 w-56 rounded-xl bg-[#131b2e] border border-white/10 shadow-2xl z-50 overflow-hidden">
             <div className="flex items-center justify-between px-3 py-2 border-b border-white/5">
               <span className="text-[11px] text-gray-400">Закладки ({bookmarks.length})</span>
-              <button onClick={addBookmark} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-[10px]" title="Сохранить текущее состояние">
-                <BookmarkPlus className="w-3.5 h-3.5" />Сохранить
+              <button onClick={() => setShowBookmarkInput((p) => !p)} className="flex items-center gap-1 text-emerald-400 hover:text-emerald-300 text-[10px]">
+                <BookmarkPlus className="w-3.5 h-3.5" />{showBookmarkInput ? 'Отмена' : 'Сохранить'}
               </button>
             </div>
+            {showBookmarkInput && (
+              <div className="px-3 py-2 border-b border-white/5 flex gap-1.5">
+                <input
+                  value={bookmarkName}
+                  onChange={(e) => setBookmarkName(e.target.value)}
+                  onKeyDown={(e) => e.key === 'Enter' && addBookmark()}
+                  placeholder="Название..."
+                  autoFocus
+                  className="flex-1 h-6 px-2 bg-white/5 border border-white/10 rounded text-[10px] text-gray-200 placeholder-gray-600 outline-none focus:border-emerald-500/50"
+                />
+                <button onClick={addBookmark} className="px-2 py-0.5 rounded bg-emerald-500/15 text-emerald-400 text-[10px] hover:bg-emerald-500/25 transition-colors">OK</button>
+              </div>
+            )}
             {bookmarks.length === 0 && <p className="text-[10px] text-gray-600 px-3 py-3 text-center">Нет закладок. Сохраните текущую карту связей.</p>}
             {bookmarks.map((bm) => (
               <div key={bm.id} className="flex items-center gap-2 px-3 py-1.5 hover:bg-white/5 transition-colors group">
@@ -546,6 +561,12 @@ export default function MemberConnectionsPage() {
               Начать
             </button>
           </div>
+        </div>
+      )}
+      {/* Toast */}
+      {toast.visible && (
+        <div className="absolute top-16 left-1/2 -translate-x-1/2 z-[70] px-4 py-2 rounded-xl bg-emerald-500/15 border border-emerald-500/20 text-emerald-400 text-[11px] font-medium shadow-xl animate-pulse">
+          {toast.msg}
         </div>
       )}
     </Layout>

@@ -1,4 +1,4 @@
-import { useRef, useEffect, useCallback } from 'react';
+import { useRef, useEffect } from 'react';
 import { STAGE_COLORS, BOND_COLORS } from '@/types';
 import type { User, Bond } from '@/types';
 
@@ -17,8 +17,8 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
   const size = 180;
   const pad = 4;
 
-  // Stable draw — don't recreate on every viewport change
-  const draw = useCallback(() => {
+  // Direct draw — reads fresh props every frame
+  const draw = () => {
     const canvas = canvasRef.current;
     if (!canvas) return;
     const ctx = canvas.getContext('2d')!;
@@ -27,49 +27,56 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     ctx.fillStyle = 'rgba(6,10,20,0.9)';
     ctx.fillRect(0, 0, size, size);
 
-    if (!nodePositions || Object.keys(nodePositions).length === 0) return;
+    const pos = nodePositions;
+    if (!pos || Object.keys(pos).length === 0) {
+      // Border only when empty
+      ctx.strokeStyle = 'rgba(255,255,255,0.08)';
+      ctx.lineWidth = 1;
+      ctx.strokeRect(0, 0, size, size);
+      return;
+    }
 
-    const xs = Object.values(nodePositions).map((p) => p.x);
-    const ys = Object.values(nodePositions).map((p) => p.y);
-    const minX = Math.min(...xs), maxX = Math.max(...xs);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const spanX = Math.max(maxX - minX, 1);
-    const spanY = Math.max(maxY - minY, 1);
+    const vals = Object.values(pos);
+    const minX = Math.min(...vals.map((p) => p.x));
+    const maxX = Math.max(...vals.map((p) => p.x));
+    const minY = Math.min(...vals.map((p) => p.y));
+    const maxY = Math.max(...vals.map((p) => p.y));
+    const spanX = Math.max(maxX - minX, 200);
+    const spanY = Math.max(maxY - minY, 200);
 
     const scaleX = (size - pad * 2) / spanX;
     const scaleY = (size - pad * 2) / spanY;
-    const scale = Math.min(scaleX, scaleY);
-    const offX = pad + (size - pad * 2 - spanX * scale) / 2 - minX * scale;
-    const offY = pad + (size - pad * 2 - spanY * scale) / 2 - minY * scale;
+    const sc = Math.min(scaleX, scaleY);
+    const offX = pad + (size - pad * 2 - spanX * sc) / 2 - minX * sc;
+    const offY = pad + (size - pad * 2 - spanY * sc) / 2 - minY * sc;
 
-    const tx = (x: number) => x * scale + offX;
-    const ty = (y: number) => y * scale + offY;
+    const tx = (x: number) => x * sc + offX;
+    const ty = (y: number) => y * sc + offY;
 
     // Links
     bonds.forEach((b) => {
-      const s = nodePositions[b.sourceId];
-      const t = nodePositions[b.targetId];
+      const s = pos[b.sourceId];
+      const t = pos[b.targetId];
       if (!s || !t) return;
       ctx.beginPath();
       ctx.moveTo(tx(s.x), ty(s.y));
       ctx.lineTo(tx(t.x), ty(t.y));
-      ctx.strokeStyle = hexRgba(BOND_COLORS[b.type], 0.15);
-      ctx.lineWidth = 0.8;
+      ctx.strokeStyle = hexRgba(BOND_COLORS[b.type], 0.12);
+      ctx.lineWidth = 0.6;
       ctx.stroke();
     });
 
     // Nodes
     users.forEach((u) => {
-      const p = nodePositions[u.id];
+      const p = pos[u.id];
       if (!p) return;
-      const r = u.isLeader ? 3 : 2;
       ctx.beginPath();
-      ctx.arc(tx(p.x), ty(p.y), r, 0, Math.PI * 2);
+      ctx.arc(tx(p.x), ty(p.y), u.isLeader ? 3 : 2.5, 0, Math.PI * 2);
       ctx.fillStyle = u.isLeader ? '#fbbf24' : STAGE_COLORS[u.stage];
       ctx.fill();
     });
 
-    // Viewport rectangle — shows visible area, scales with zoom
+    // Viewport rectangle
     const vx = viewport.x || 0;
     const vy = viewport.y || 0;
     const vz = viewport.zoom || 1;
@@ -77,62 +84,55 @@ export default function MiniMap({ users, bonds, nodePositions, viewport, width, 
     const vh = height / vz;
     const vrx = tx(vx - vw / 2);
     const vry = ty(vy - vh / 2);
-    const vrw = Math.max(vw * scale, 8);
-    const vrh = Math.max(vh * scale, 8);
+    const vrw = Math.max(vw * sc, 6);
+    const vrh = Math.max(vh * sc, 6);
 
-    ctx.strokeStyle = 'rgba(52,211,153,0.6)';
+    ctx.strokeStyle = 'rgba(52,211,153,0.5)';
     ctx.lineWidth = 1;
     ctx.strokeRect(vrx, vry, vrw, vrh);
-    ctx.fillStyle = 'rgba(52,211,153,0.06)';
+    ctx.fillStyle = 'rgba(52,211,153,0.05)';
     ctx.fillRect(vrx, vry, vrw, vrh);
 
+    // Border
     ctx.strokeStyle = 'rgba(255,255,255,0.08)';
     ctx.lineWidth = 1;
     ctx.strokeRect(0, 0, size, size);
-  // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [users, bonds, nodePositions]);
+  };
 
-  // Real-time render loop — viewport updates every frame
+  // RAF loop — always uses latest props via closure
   useEffect(() => {
     let raf: number;
     const loop = () => { draw(); raf = requestAnimationFrame(loop); };
     raf = requestAnimationFrame(loop);
     return () => cancelAnimationFrame(raf);
-  }, [draw, viewport]);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
 
   const handleClick = (e: React.MouseEvent) => {
     const canvas = canvasRef.current;
-    if (!canvas || !nodePositions || Object.keys(nodePositions).length === 0) return;
+    if (!canvas) return;
     const rect = canvas.getBoundingClientRect();
     const mx = e.clientX - rect.left;
     const my = e.clientY - rect.top;
 
-    const xs = Object.values(nodePositions).map((p) => p.x);
-    const ys = Object.values(nodePositions).map((p) => p.y);
-    const minX = Math.min(...xs), maxX = Math.max(...xs);
-    const minY = Math.min(...ys), maxY = Math.max(...ys);
-    const spanX = Math.max(maxX - minX, 1);
-    const spanY = Math.max(maxY - minY, 1);
-    const scaleX = (size - pad * 2) / spanX;
-    const scaleY = (size - pad * 2) / spanY;
-    const scale = Math.min(scaleX, scaleY);
-    const offX = pad + (size - pad * 2 - spanX * scale) / 2 - minX * scale;
-    const offY = pad + (size - pad * 2 - spanY * scale) / 2 - minY * scale;
+    const vals = Object.values(nodePositions);
+    if (vals.length === 0) return;
+    const minX = Math.min(...vals.map((p) => p.x));
+    const maxX = Math.max(...vals.map((p) => p.x));
+    const minY = Math.min(...vals.map((p) => p.y));
+    const maxY = Math.max(...vals.map((p) => p.y));
+    const spanX = Math.max(maxX - minX, 200);
+    const spanY = Math.max(maxY - minY, 200);
+    const sc = Math.min((size - pad * 2) / spanX, (size - pad * 2) / spanY);
+    const offX = pad + (size - pad * 2 - spanX * sc) / 2 - minX * sc;
+    const offY = pad + (size - pad * 2 - spanY * sc) / 2 - minY * sc;
 
-    const worldX = (mx - offX) / scale;
-    const worldY = (my - offY) / scale;
-    onViewportClick(worldX, worldY);
+    onViewportClick((mx - offX) / sc, (my - offY) / sc);
   };
 
   return (
     <div className="absolute bottom-3 right-3 z-40 rounded-lg overflow-hidden shadow-xl border border-white/10">
-      <canvas
-        ref={canvasRef}
-        width={size}
-        height={size}
-        className="cursor-pointer"
-        onClick={handleClick}
-      />
+      <canvas ref={canvasRef} width={size} height={size} className="cursor-pointer" onClick={handleClick} />
     </div>
   );
 }
